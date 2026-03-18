@@ -6,7 +6,7 @@ All hyperparameters and paths are defined here for easy experimentation.
 import os
 import torch
 
-# ─── Paths ──────────────────────────────────────────────────────────────────
+# Paths 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "dataset", "Samples", "Samples")
 CHECKPOINT_DIR = os.path.join(BASE_DIR, "checkpoints", "diffusion")
