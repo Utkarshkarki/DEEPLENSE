@@ -296,3 +296,7 @@ def _plot_loss_curve(losses, path, name="DDPM"):
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  Loss curve saved to {path}")
+
+
+if __name__ == "__main__":
+    train_ddpm()
