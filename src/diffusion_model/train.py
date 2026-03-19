@@ -84,8 +84,9 @@ def train_ddpm(
     num_epochs = num_epochs or config.NUM_EPOCHS
     save_dir = save_dir or config.RESULTS_DIR
     os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(config.CHECKPOINT_DIR, exist_ok=True)  # ensure checkpoint dir exists
     
-    print(f"\n{'='*60}")
+    print(f"\\n{'='*60}")
     print(f"Training DDPM: {experiment_name}")
     print(f"  Epochs: {num_epochs}, Attention: {use_attention}, EMA: {use_ema}")
     print(f"  Device: {config.DEVICE}")
