@@ -113,8 +113,22 @@ def train_ddpm(
     # Training loop
     losses = []
     best_loss = float('inf')
+    start_epoch = 1
     
-    for epoch in range(1, num_epochs + 1):
+    # Auto-resume from best checkpoint
+    ckpt_path = os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_best.pth")
+    if os.path.exists(ckpt_path):
+        print(f"\\nResuming training from checkpoint: {ckpt_path}")
+        ckpt = torch.load(ckpt_path, map_location=config.DEVICE)
+        model.load_state_dict(ckpt['model_state_dict'])
+        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        start_epoch = ckpt['epoch'] + 1
+        best_loss = ckpt['loss']
+        if ema is not None and ckpt.get('ema_shadow') is not None:
+            ema.shadow = ckpt['ema_shadow']
+        print(f"Starting from Epoch {start_epoch} with Best Loss {best_loss:.6f}\\n")
+    
+    for epoch in range(start_epoch, num_epochs + 1):
         model.train()
         epoch_loss = 0.0
         
