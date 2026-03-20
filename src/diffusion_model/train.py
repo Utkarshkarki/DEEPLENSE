@@ -116,7 +116,9 @@ def train_ddpm(
     start_epoch = 1
     
     # Auto-resume from best checkpoint
-    ckpt_path = os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_best.pth")
+    latest_path = os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_latest.pth")
+    best_path = os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_best.pth")
+    ckpt_path = latest_path if os.path.exists(latest_path) else best_path
     if os.path.exists(ckpt_path):
         print(f"\\nResuming training from checkpoint: {ckpt_path}")
         ckpt = torch.load(ckpt_path, map_location=config.DEVICE)
@@ -163,9 +165,9 @@ def train_ddpm(
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'loss': best_loss,
+                'loss': avg_loss,
                 'ema_shadow': ema.shadow if ema else None,
-            }, os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_best.pth"))
+            }, os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_latest.pth"))
         
         # Periodic checkpoint
         if epoch % config.SAVE_INTERVAL == 0:
