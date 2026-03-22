@@ -115,20 +115,20 @@ def train_ddpm(
     best_loss = float('inf')
     start_epoch = 1
     
-    # Auto-resume from best checkpoint
+    # Auto-resume — prefer latest checkpoint (exact epoch) over best
     latest_path = os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_latest.pth")
     best_path = os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_best.pth")
     ckpt_path = latest_path if os.path.exists(latest_path) else best_path
     if os.path.exists(ckpt_path):
-        print(f"\\nResuming training from checkpoint: {ckpt_path}")
+        print(f"\nResuming training from checkpoint: {ckpt_path}")
         ckpt = torch.load(ckpt_path, map_location=config.DEVICE)
         model.load_state_dict(ckpt['model_state_dict'])
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         start_epoch = ckpt['epoch'] + 1
-        best_loss = ckpt['loss']
+        best_loss = ckpt.get('best_loss', ckpt['loss'])
         if ema is not None and ckpt.get('ema_shadow') is not None:
             ema.shadow = ckpt['ema_shadow']
-        print(f"Starting from Epoch {start_epoch} with Best Loss {best_loss:.6f}\\n")
+        print(f"Resuming from Epoch {start_epoch}, Best Loss so far: {best_loss:.6f}\n")
     
     for epoch in range(start_epoch, num_epochs + 1):
         model.train()
@@ -166,8 +166,19 @@ def train_ddpm(
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_loss,
+                'best_loss': best_loss,
                 'ema_shadow': ema.shadow if ema else None,
-            }, os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_latest.pth"))
+            }, os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_best.pth"))
+        
+        # Always save latest checkpoint so resume starts from exact last epoch
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': avg_loss,
+            'best_loss': best_loss,
+            'ema_shadow': ema.shadow if ema else None,
+        }, os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_latest.pth"))
         
         # Periodic checkpoint
         if epoch % config.SAVE_INTERVAL == 0:
