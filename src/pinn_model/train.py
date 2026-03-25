@@ -232,8 +232,15 @@ def train_model(
         # Restore optimizer & scheduler if saved (backward-compatible)
         if 'optimizer_state_dict' in ckpt:
             optimizer.load_state_dict(ckpt['optimizer_state_dict'])
-        if 'scheduler_state_dict' in ckpt:
+        # Only restore scheduler if total epochs match — T_max is baked into scheduler
+        # state and would corrupt LR if mismatched (e.g. 15-epoch checkpoint → 100-epoch run)
+        ckpt_num_epochs = ckpt.get('num_epochs', None)
+        if 'scheduler_state_dict' in ckpt and ckpt_num_epochs == num_epochs:
             scheduler.load_state_dict(ckpt['scheduler_state_dict'])
+        elif 'scheduler_state_dict' in ckpt:
+            print(f"  [Note] Skipping scheduler state restore: checkpoint was trained for "
+                  f"{ckpt_num_epochs} epochs, current run is {num_epochs} epochs. "
+                  f"LR schedule will restart from epoch {start_epoch}.")
         print(f"Resuming from Epoch {start_epoch}, Best Val Acc so far: {best_val_acc:.1f}%\n")
 
     for epoch in range(start_epoch, num_epochs + 1):
@@ -323,6 +330,7 @@ def train_model(
             best_val_acc = val_acc
             torch.save({
                 'epoch': epoch,
+                'num_epochs': num_epochs,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
@@ -334,6 +342,7 @@ def train_model(
         # Always save latest checkpoint so resume starts from exact last epoch
         torch.save({
             'epoch': epoch,
+            'num_epochs': num_epochs,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict(),
