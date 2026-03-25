@@ -211,8 +211,23 @@ def train_model(
     }
     
     best_val_acc = 0.0
-    
-    for epoch in range(1, num_epochs + 1):
+    start_epoch = 1
+
+    # Auto-resume from latest checkpoint (exact epoch) or best
+    latest_path = os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_latest.pth")
+    best_path = os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_best.pth")
+    ckpt_path = latest_path if os.path.exists(latest_path) else best_path
+    if os.path.exists(ckpt_path):
+        print(f"\nResuming from checkpoint: {ckpt_path}")
+        ckpt = torch.load(ckpt_path, map_location=config.DEVICE)
+        model.load_state_dict(ckpt['model_state_dict'])
+        start_epoch = ckpt['epoch'] + 1
+        best_val_acc = ckpt.get('best_val_acc', ckpt.get('val_acc', 0.0))
+        if 'history' in ckpt:
+            history = ckpt['history']
+        print(f"Resuming from Epoch {start_epoch}, Best Val Acc so far: {best_val_acc:.1f}%\n")
+
+    for epoch in range(start_epoch, num_epochs + 1):
         # ─── Train ──────────────────────────────────────────────
         model.train()
         epoch_losses = {k: 0.0 for k in ['total', 'class', 'physics', 'k_smooth', 'res', 'alpha']}
@@ -301,9 +316,19 @@ def train_model(
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'val_acc': val_acc,
+                'best_val_acc': best_val_acc,
                 'history': history,
             }, os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_best.pth"))
-        
+
+        # Always save latest checkpoint so resume starts from exact last epoch
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'val_acc': val_acc,
+            'best_val_acc': best_val_acc,
+            'history': history,
+        }, os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_latest.pth"))
+
         # Periodic checkpoint
         if epoch % config.SAVE_INTERVAL == 0:
             torch.save({
