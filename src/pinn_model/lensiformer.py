@@ -90,8 +90,11 @@ class LocalitySelfAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.dropout = nn.Dropout(dropout)
         
-        # Learnable temperature (instead of fixed √d)
-        self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
+        # Learnable temperature — initialize to 1/√head_dim (standard attention scaling)
+        # Starting at 1.0 was too small, causing uniform attention and gradient collapse
+        self.temperature = nn.Parameter(
+            torch.ones(num_heads, 1, 1) / math.sqrt(self.head_dim)
+        )
     
     def forward(self, x):
         B, N, C = x.shape

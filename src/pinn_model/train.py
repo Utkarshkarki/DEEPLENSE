@@ -32,13 +32,17 @@ class PhysicsLoss(nn.Module):
     
     L = L_class + λ₁·L_physics + λ₂·L_k + λ₃·L_res + λ₄·L_alpha
     
-    λ₁ follows a curriculum: 0 → LAMBDA_PHYSICS over epochs.
+    All λ follow a curriculum: 0 → target over epochs.
     All losses normalized by running mean for stable gradients.
     """
     
     def __init__(self):
         super().__init__()
         self.ce_loss = nn.CrossEntropyLoss()
+        
+        # Pre-create CoordinateSystem ONCE (not per-batch!)
+        from .coordinate_utils import CoordinateSystem
+        self.coords = CoordinateSystem()
         
         # Running means for dynamic balancing
         self.running_means = {
@@ -48,15 +52,15 @@ class PhysicsLoss(nn.Module):
         self.momentum = 0.99
     
     def get_physics_weight(self, epoch):
-        """Curriculum schedule for physics loss weight."""
+        """Curriculum schedule for ALL auxiliary loss weights."""
         if epoch < config.CURRICULUM_START:
             return 0.0
         elif epoch < config.CURRICULUM_END:
             # Linear ramp
             progress = (epoch - config.CURRICULUM_START) / (config.CURRICULUM_END - config.CURRICULUM_START)
-            return config.LAMBDA_PHYSICS * progress
+            return progress
         else:
-            return config.LAMBDA_PHYSICS
+            return 1.0
     
     def _update_running_mean(self, key, value):
         self.running_means[key] = (
@@ -90,23 +94,21 @@ class PhysicsLoss(nn.Module):
         
         # 2. Physics consistency loss: ||Î − I||² (center-weighted)
         if lambda_phys > 0:
-            from .lens_layer import InverseLensLayer
+            import torch.nn.functional as F
             source = physics_data['source']
             
             # Forward lens: re-lens source using SAME α
             forward_grid = physics_data['base_grid'] + physics_data['alpha_grid']
             forward_grid = torch.clamp(forward_grid, -1.0, 1.0)
             
-            import torch.nn.functional as F
             reconstructed = F.grid_sample(
                 source, forward_grid, mode='bilinear',
                 padding_mode='border', align_corners=True
             )
             
-            # Center-weighted MSE
-            from .coordinate_utils import CoordinateSystem
-            coords = CoordinateSystem().to(image.device)
-            weight_map = coords.get_center_weight_map(sigma=0.5)
+            # Center-weighted MSE — reuse pre-created coords (no per-batch allocation!)
+            self.coords = self.coords.to(image.device)
+            weight_map = self.coords.get_center_weight_map(sigma=0.5)
             weight_map = weight_map.unsqueeze(0).unsqueeze(0)
             
             l_physics = (weight_map * (reconstructed - image) ** 2).mean()
@@ -135,12 +137,14 @@ class PhysicsLoss(nn.Module):
         losses['alpha'] = l_alpha
         
         # Dynamic balancing: normalize each loss by running mean
+        # ALL auxiliary losses obey the same curriculum — no aux-loss interference
+        # during the critical early classification-learning phase.
         total = l_class
         if lambda_phys > 0:
-            total = total + lambda_phys * (l_physics / max(self.running_means['physics'], 1e-8))
-        total = total + config.LAMBDA_K_SMOOTH * (l_k / max(self.running_means['k'], 1e-8))
-        total = total + config.LAMBDA_RES * (l_res / max(self.running_means['res'], 1e-8))
-        total = total + config.LAMBDA_ALPHA * (l_alpha / max(self.running_means['alpha'], 1e-8))
+            total = total + (config.LAMBDA_PHYSICS * lambda_phys) * (l_physics / max(self.running_means['physics'], 1e-8))
+            total = total + (config.LAMBDA_K_SMOOTH * lambda_phys) * (l_k / max(self.running_means['k'], 1e-8))
+            total = total + (config.LAMBDA_RES * lambda_phys) * (l_res / max(self.running_means['res'], 1e-8))
+            total = total + (config.LAMBDA_ALPHA * lambda_phys) * (l_alpha / max(self.running_means['alpha'], 1e-8))
         
         losses['total'] = total
         
@@ -200,7 +204,7 @@ def train_model(
     
     # LR warmup + cosine annealing
     warmup = LinearLR(optimizer, start_factor=0.01, total_iters=config.WARMUP_EPOCHS)
-    cosine = CosineAnnealingLR(optimizer, T_max=num_epochs - config.WARMUP_EPOCHS)
+    cosine = CosineAnnealingLR(optimizer, T_max=max(num_epochs - config.WARMUP_EPOCHS, 1))
     scheduler = SequentialLR(optimizer, [warmup, cosine], milestones=[config.WARMUP_EPOCHS])
     
     # Training history
@@ -225,6 +229,11 @@ def train_model(
         best_val_acc = ckpt.get('best_val_acc', ckpt.get('val_acc', 0.0))
         if 'history' in ckpt:
             history = ckpt['history']
+        # Restore optimizer & scheduler if saved (backward-compatible)
+        if 'optimizer_state_dict' in ckpt:
+            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        if 'scheduler_state_dict' in ckpt:
+            scheduler.load_state_dict(ckpt['scheduler_state_dict'])
         print(f"Resuming from Epoch {start_epoch}, Best Val Acc so far: {best_val_acc:.1f}%\n")
 
     for epoch in range(start_epoch, num_epochs + 1):
@@ -315,6 +324,8 @@ def train_model(
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
                 'val_acc': val_acc,
                 'best_val_acc': best_val_acc,
                 'history': history,
@@ -324,6 +335,8 @@ def train_model(
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
             'val_acc': val_acc,
             'best_val_acc': best_val_acc,
             'history': history,
@@ -334,6 +347,8 @@ def train_model(
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
                 'val_acc': val_acc,
                 'history': history,
             }, os.path.join(config.CHECKPOINT_DIR, f"{experiment_name}_epoch{epoch}.pth"))

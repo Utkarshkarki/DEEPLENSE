@@ -106,17 +106,19 @@ def get_dataloaders(batch_size=None, data_fraction=1.0):
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,
+        num_workers=2,
         pin_memory=True,
-        drop_last=True
+        drop_last=True,
+        persistent_workers=True
     )
     
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0,
-        pin_memory=True
+        num_workers=2,
+        pin_memory=True,
+        persistent_workers=True
     )
     
     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
