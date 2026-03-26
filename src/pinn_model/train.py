@@ -263,11 +263,24 @@ def train_model(
             # Loss
             losses = criterion(logits, labels, physics_data, images, epoch)
             
-            # Backward
-            optimizer.zero_grad()
-            losses['total'].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            # Skip batch if loss is NaN/Inf (numerical instability in physics ops)
+            if not torch.isfinite(losses['total']):
+                optimizer.zero_grad()
+                continue
+            
+            # Backward — catch CUDA errors from bad batches instead of crashing
+            try:
+                optimizer.zero_grad()
+                losses['total'].backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+            except RuntimeError as e:
+                if 'CUDA' in str(e):
+                    print(f"\n  [Warning] CUDA error on batch, skipping: {e}")
+                    optimizer.zero_grad()
+                    torch.cuda.empty_cache()
+                    continue
+                raise
             
             # Track
             for k, v in losses.items():
