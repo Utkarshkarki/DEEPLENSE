@@ -85,5 +85,5 @@ DEEPLENSE/
 ---
 
 ## ✒️ Author
-[Your Name / GitHub Username]  
+[Utkarsh karki / Theutkarshkarki]  
 *Prospective GSoC 2026 Contributor for DeepLense*
